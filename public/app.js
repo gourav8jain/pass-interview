@@ -43,13 +43,15 @@ function home() {
   <div class="card"><h3>📎 Documents</h3><p class="mut">Upload notes, briefs, playbooks (.txt/.md/.csv) — the AI references them in answers.</p><input type="file" id="df" accept=".txt,.md,.csv,.json"><div id="dl" class="mut"></div></div>
   <div class="card"><h3>🎁 Credits &amp; codes</h3><p class="mut">Bonus credits: <b>${S.me.bonus}</b> · Your referral code: <b>${S.me.ref}</b> (friend + you get 20 credits)</p><div class="row"><input id="cd" placeholder="Enter promo / referral code" style="flex:1"><button id="rd">Redeem</button></div></div>
   <div class="card"><h3>Quick start</h3><div class="row"><button onclick="location.hash='#/mock'">🎤 Mock interview</button><button class="sec" onclick="location.hash='#/copilot'">⚡ Live copilot</button><button class="sec" onclick="location.hash='#/prep'">📚 Prep tools</button></div></div>
-  <div class="card"><h3>History</h3><div id="hist" class="mut">Loading…</div></div>`);
+  <div class="card"><div class="row sp"><h3>History</h3><button class="sec" id="ex">Export all</button></div><input id="hs" placeholder="Search sessions…"><div id="hist" class="mut">Loading…</div></div>`);
   const p = S.me.profile || {}; $('#role').value = p.role || ''; $('#level').value = p.level || ''; $('#resume').value = p.resume || '';
   $('#instr').value = p.instructions || '';
   $('#sv').onclick = e => run(e.target, async () => { S.me = await api('/profile', 'PUT', { role: val('role'), level: val('level'), resume: val('resume'), instructions: val('instr').slice(0, 20000) }); toast('Saved'); });
   const dl = () => api('/docs').then(l => $('#dl').innerHTML = l.map(d => `${esc(d.title)} (${d.size} chars) <a href="#" data-d="${d.id}" style="color:var(--bad)">remove</a><br>`).join('') || 'No documents.').then(() => document.querySelectorAll('[data-d]').forEach(a => a.onclick = ev => { ev.preventDefault(); api('/docs/' + a.dataset.d, 'DELETE').then(dl); })); dl();
   $('#df').onchange = async e => { const f = e.target.files[0]; if (!f) return; try { await api('/docs', 'POST', { title: f.name, text: await f.text() }); toast('Uploaded'); dl(); } catch (er) { toast(er.message); } e.target.value = ''; };
   $('#rd').onclick = e => run(e.target, async () => { const r = await api('/redeem', 'POST', { code: val('cd') }); S.me = r.user; toast('+' + r.credits + ' credits'); home(); });
+  $('#ex').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(window._sess || [], null, 1)], { type: 'application/json' })); a.download = 'passinterview-history.json'; a.click(); };
+  $('#hs').oninput = () => { const q = val('hs').toLowerCase(); document.querySelectorAll('#hist tr').forEach((tr, i) => { const x = _sess[i]; tr.style.display = !q || JSON.stringify(x).toLowerCase().includes(q) ? '' : 'none'; }); };
   api('/sessions').then(l => { window._sess = l; $('#hist').innerHTML = l.length ? '<table>' + l.slice(0, 15).map((s, i) => `<tr><td>${new Date(s.t).toLocaleDateString()}</td><td>${esc(s.role)} · ${esc(s.type)}</td><td>${s.score ? s.score + '/10' : '—'}</td><td><a href="#" data-v="${i}" style="color:var(--ac)">view</a></td></tr>`).join('') + '</table><div id="tv"></div>' : 'No sessions yet.'; document.querySelectorAll('[data-v]').forEach(a => a.onclick = ev => { ev.preventDefault(); viewSess(_sess[a.dataset.v]); }); });
 }
 
@@ -107,25 +109,36 @@ async function room(sess, cfg) {
 // ---------- live copilot (visible, in-app) ----------
 async function copilot() {
   const p = S.me.profile || {}; const models = await api('/models'); const docs = await api('/docs');
-  shell('copilot', `<div class="card"><h2>⚡ Live copilot</h2><p class="mut">Listens to a question and drafts a speakable answer from your profile, instructions and documents. Use for practice, mock calls, or interviews where notes/AI assistance are allowed — follow the rules of the interview you're in.</p>
+  shell('copilot', `<div class="card"><h2>⚡ Live copilot</h2><p class="mut">Hotkeys: Alt+A answer · Alt+M mic · Alt+L listen · Alt+C clear. Listens to a question and drafts a speakable answer from your profile, instructions and documents. Use for practice, mock calls, or interviews where notes/AI assistance are allowed — follow the rules of the interview you're in.</p>
   <div class="row"><select id="mode" style="flex:1"><option value="interview">Interview mode</option><option value="call">Regular call mode</option></select><select id="model" style="flex:1">${models.map(m => `<option>${m}</option>`).join('')}</select></div>
   <div class="row"><select id="lang" style="flex:1">${LANGS.map(l => `<option>${l}</option>`).join('')}</select><select id="sty" style="flex:1"><option value="concise">Concise</option><option value="detailed">Detailed</option></select></div>
   ${field('role', 'Role', 'Software Engineer')}
   ${docs.length ? `<div class="mut">Documents to use:</div>${docs.map(d => `<label class="row"><input type="checkbox" class="dc" value="${d.id}" checked style="width:auto"> ${esc(d.title)}</label>`).join('')}` : ''}
   <label class="row"><input type="checkbox" id="auto" style="width:auto"> Auto-answer when I pause (3s)</label></div>
-  <div class="card"><div class="row sp"><button class="mic sec" id="mic">🎙</button><div class="row"><button id="ans">Answer</button><button class="sec" id="shot">📷 Photo</button><button class="sec" id="clr">Clear</button><button class="ok" id="end">End</button></div></div>
+  <div class="card"><div class="row sp"><button class="mic sec" id="mic">🎙</button><div class="row"><button id="ans">Answer</button><button class="sec" id="shot">📷 Photo</button><button class="sec" id="lis">🔊 Listen</button><button class="sec" id="clr">Clear</button><button class="ok" id="end">End</button></div></div>
   <input type="file" id="img" accept="image/*" capture="environment" hidden>
   <textarea id="q" placeholder="Question appears here (or type it)…"></textarea>
-  <div class="row"><input id="chat" placeholder="Chat with the AI about this session…" style="flex:1"><button class="sec" id="cs">Send</button></div></div><div id="log"></div>`);
-  $('#role').value = p.role || ''; let rec = null, timer = null; const turns = [];
+  <div class="row"><input id="chat" placeholder="Chat with the AI about this session…" style="flex:1"><button class="sec" id="cs">Send</button></div></div><div id="chips" class="row"></div><div id="heard" class="mut"></div><div id="log"></div>`);
+  $('#role').value = p.role || ''; let rec = null, timer = null, lis = null; const turns = [];
   const ctx = () => ({ role: val('role'), level: p.level, style: $('#sty').value, mode: $('#mode').value, model: $('#model').value, lang: $('#lang').value, docIds: [...document.querySelectorAll('.dc:checked')].map(x => x.value) });
   const card = (q, t) => $('#log').insertAdjacentHTML('afterbegin', `<div class="card"><b>Q:</b> ${esc(q)}<div class="out">${md(t)}</div><button class="sec" onclick="navigator.clipboard.writeText(this.previousElementSibling.innerText);toast('Copied')">Copy</button> <button class="sec" onclick="saveBank(this)" data-q="${esc(q)}">Save to bank</button></div>`);
-  const go = async (image) => { const q = val('q'); if (!q && !image) return; await run($('#ans'), async () => { const r = await api('/ai/answer', 'POST', { ...ctx(), question: q, image }); turns.push({ r: 'q', t: q || '[photo question]' }, { r: 'a', t: r.text }); card(q || '📷 Photo question', r.text); S.me = await api('/me'); $('#q').value = ''; }); };
+  const go = async (image) => { const q = val('q'); if (!q && !image) return; await run($('#ans'), async () => { const r = await api('/ai/answer', 'POST', { ...ctx(), question: q, image }); turns.push({ r: 'q', t: q || '[photo question]' }, { r: 'a', t: r.text }); card(q || '📷 Photo question', r.text); S.me = await api('/me'); $('#q').value = '';
+    api('/ai/chips', 'POST', { ...ctx(), question: q, answer: r.text }).then(c => { $('#chips').innerHTML = c.chips.map(x => `<button class="sec chip" style="font-size:13px">${esc(x)}</button>`).join(''); document.querySelectorAll('.chip').forEach(b => b.onclick = () => { $('#q').value = b.textContent; go(); }); }).catch(() => {}); }); };
   $('#ans').onclick = () => go();
   $('#clr').onclick = () => { $('#q').value = ''; $('#log').innerHTML = ''; turns.length = 0; };
   $('#shot').onclick = () => $('#img').click();
   $('#img').onchange = e => { const f = e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { const im = new Image(); im.onload = () => { const c = document.createElement('canvas'), k = Math.min(1, 1400 / Math.max(im.width, im.height)); c.width = im.width * k; c.height = im.height * k; c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); go(c.toDataURL('image/jpeg', 0.8)); }; im.src = rd.result; }; rd.readAsDataURL(f); e.target.value = ''; };
   $('#mic').onclick = () => { if (rec) { rec.stop(); rec = null; return; } rec = listen(t => { $('#q').value = t; clearTimeout(timer); if ($('#auto').checked) timer = setTimeout(() => go(), 3000); }, on => { $('#mic').classList.toggle('live', on); if (!on) rec = null; }, SPEECH_LANG[$('#lang').value]); };
+  // Listen mode: capture audio of a tab/window YOU choose to share (browser shows its own share prompt), transcribe in chunks
+  $('#lis').onclick = async () => {
+    if (lis) { lis.stop(); lis = null; $('#lis').classList.remove('bad'); return; }
+    let st; try { st = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }); } catch { return toast('Share cancelled'); }
+    const tr = st.getAudioTracks(); if (!tr.length) { st.getTracks().forEach(t => t.stop()); return toast('No audio — tick "Also share tab audio"'); }
+    const as = new MediaStream(tr); let stop = false; $('#lis').classList.add('bad');
+    lis = { stop: () => { stop = true; st.getTracks().forEach(t => t.stop()); } }; st.getTracks()[0].onended = () => { stop = true; lis = null; $('#lis').classList.remove('bad'); };
+    const seg = () => { if (stop) return; const mr = new MediaRecorder(as, { mimeType: 'audio/webm' }), ch = []; mr.ondataavailable = e => ch.push(e.data); mr.onstop = async () => { seg(); const bl = new Blob(ch, { type: 'audio/webm' }); if (bl.size < 2000) return; const b64 = await new Promise(ok => { const f = new FileReader(); f.onload = () => ok(f.result.split(',')[1]); f.readAsDataURL(bl); }); try { const r = await api('/stt', 'POST', { audio: b64, mime: 'audio/webm' }); if (r.text && r.text.trim()) { turns.push({ r: 'q', t: '[Call] ' + r.text }); $('#heard').innerHTML += `<div><b>Call:</b> ${esc(r.text)}</div>`; $('#q').value = r.text; if ($('#auto').checked && /\?\s*$|\b(what|how|why|tell me|describe|explain|can you)\b/i.test(r.text)) go(); } } catch (e) { toast(e.message); stop = true; lis = null; $('#lis').classList.remove('bad'); } }; mr.start(); setTimeout(() => mr.state === 'recording' && mr.stop(), 7000); }; seg();
+  };
+  document.onkeydown = e => { if (!e.altKey || !$('#ans')) return; const k = e.key.toLowerCase(); if (k === 'a') $('#ans').click(); else if (k === 'm') $('#mic').click(); else if (k === 'c') $('#clr').click(); else if (k === 'l') $('#lis').click(); };
   $('#cs').onclick = e => run(e.target, async () => { const m = val('chat'); if (!m) return; const r = await api('/ai/chat', 'POST', { ...ctx(), question: m, transcript: transcriptText(turns) }); turns.push({ r: 'q', t: m }, { r: 'a', t: r.text }); card('💬 ' + m, r.text); $('#chat').value = ''; });
   $('#end').onclick = e => run(e.target, async () => {
     if (rec) rec.stop(); if (!turns.length) { toast('Nothing to save yet'); return; }

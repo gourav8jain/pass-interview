@@ -46,6 +46,15 @@ const pub = u => ({ id: u.id, email: u.email, name: u.name, role: u.role, plan: 
 // ---------- AI ----------
 const MODELS = (process.env.AI_MODELS || 'claude-sonnet-5-5,claude-opus-5-5,claude-haiku-5-5').split(',');
 async function ai(system, user, max = 900, o = {}) {
+  if (!KEY && process.env.OPENAI_API_KEY) {
+    try {
+      const r = await fetch((process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1') + '/chat/completions', {
+        method: 'POST', headers: { authorization: 'Bearer ' + process.env.OPENAI_API_KEY, 'content-type': 'application/json' },
+        body: JSON.stringify({ model: process.env.OPENAI_MODEL || 'gpt-4o-mini', max_tokens: max, messages: [{ role: 'system', content: system }, { role: 'user', content: o.image ? [{ type: 'image_url', image_url: { url: o.image } }, { type: 'text', text: user || 'Answer the question shown in this image.' }] : user }] }),
+      });
+      const j = await r.json(); return j.choices && j.choices[0].message.content;
+    } catch (e) { return null; }
+  }
   if (!KEY) return null;
   try {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
@@ -105,8 +114,13 @@ async function handleAI(kind, b, user) {
     const out = await ai(`Review this resume for the target role. Give ATS score /100, top 5 fixes, and 3 rewritten bullet examples with [metric] placeholders.`, `Target: ${b.role}\n\n${(b.resume || user.profile.resume || '').slice(0, 5000)}`, 1000);
     return { text: out || 'Add measurable outcomes to each bullet, mirror JD keywords, keep to 1–2 pages, lead bullets with strong verbs.' + demoNote };
   }
+  if (kind === 'chips') {
+    const out = await ai(`Suggest 4 short follow-up questions the interviewer/other party might ask next (or the candidate should ask). One per line, no numbering.`, `Last question: ${b.question}\nAnswer given: ${(b.answer || '').slice(0, 1500)}`, 200, o);
+    const lines = (out || '').split('\n').map(x => x.replace(/^[-*\d.\s]+/, '').trim()).filter(Boolean).slice(0, 4);
+    return { chips: lines.length ? lines : ['Can you give a concrete example?', 'What was the measurable result?', 'What would you do differently?', 'How did you work with the team?'] };
+  }
   if (kind === 'notes') {
-    const out = await ai(`Summarise this call/interview transcript. Return: Summary (3 bullets), Questions asked, What went well, What to improve, Next steps.`, (b.transcript || '').slice(0, 20000), 900, o);
+    const out = await ai(`Summarise this call/interview transcript. Return a meeting report: Summary (3 bullets), Key questions asked, Decisions made, Action items (owner if known), Follow-ups to send, What went well, What to improve.`, (b.transcript || '').slice(0, 20000), 900, o);
     return { text: out || '**Summary (demo)**\n- Transcript saved. Add an API key for AI notes.' + demoNote };
   }
   if (kind === 'chat') {
@@ -185,7 +199,7 @@ const server = http.createServer(async (req, res) => {
     const m = p.match(/^\/api\/ai\/(\w+)$/);
     if (m && req.method === 'POST') {
       if (!need()) return;
-      const kind = m[1], bucket = kind === 'answer' ? 'answers' : kind === 'interview' ? null : 'tools';
+      const kind = m[1], bucket = kind === 'answer' ? 'answers' : (kind === 'interview' || kind === 'chips') ? null : 'tools';
       if (bucket && !consume(user, bucket)) return send(res, 402, { error: `Monthly ${bucket} limit reached — upgrade your plan`, upgrade: true });
       return send(res, 200, await handleAI(kind, b, user));
     }
@@ -208,6 +222,14 @@ const server = http.createServer(async (req, res) => {
     }
     const bm = p.match(/^\/api\/bank\/(\w+)$/);
     if (bm && req.method === 'DELETE') { if (!need()) return; db.bank = db.bank.filter(x => !(x.id === bm[1] && x.uid === user.id)); save(); return send(res, 200, {}); }
+    if (p === '/api/stt' && req.method === 'POST') {
+      if (!need()) return;
+      const key = process.env.STT_API_KEY || process.env.OPENAI_API_KEY;
+      if (!key) return send(res, 501, { error: 'Speech-to-text not configured (set STT_API_KEY, optional STT_BASE_URL / STT_MODEL)' });
+      const fd = new FormData(); fd.append('file', new Blob([Buffer.from(b.audio || '', 'base64')], { type: b.mime || 'audio/webm' }), 'a.webm'); fd.append('model', process.env.STT_MODEL || 'whisper-1');
+      const r = await fetch((process.env.STT_BASE_URL || 'https://api.openai.com/v1') + '/audio/transcriptions', { method: 'POST', headers: { authorization: 'Bearer ' + key }, body: fd });
+      const j = await r.json().catch(() => ({})); return send(res, r.ok ? 200 : 502, { text: j.text || '', error: j.error && j.error.message });
+    }
     if (p === '/api/docs') {
       if (!need()) return;
       if (req.method === 'GET') return send(res, 200, db.docs.filter(d => d.uid === user.id).map(d => ({ id: d.id, title: d.title, size: d.text.length })));

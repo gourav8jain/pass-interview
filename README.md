@@ -23,3 +23,7 @@ Without ANTHROPIC_API_KEY it runs in demo mode with template responses.
 2. Deploy `server.js` to a Node host (Render, Railway, Fly.io; start command `node server.js`). Set env: `ADMIN_PASSWORD`, `ANTHROPIC_API_KEY`, `CORS_ORIGIN=https://<user>.github.io`. Attach a persistent disk for `data/` or move to Postgres.
 3. In repo Settings → Secrets and variables → Actions → Variables, add `API_BASE` = your API URL. The Pages workflow injects it into `config.js` on each push.
 CI (`ci.yml`) syntax-checks and smoke-tests the API on every push/PR.
+
+## Optional providers (env)
+- `OPENAI_API_KEY` [+ `OPENAI_BASE_URL`, `OPENAI_MODEL`]: use any OpenAI-compatible model (OpenRouter, Ollama, etc.) when no Anthropic key is set.
+- `STT_API_KEY` [+ `STT_BASE_URL`, `STT_MODEL`]: enables Listen mode transcription (tab audio you choose to share).
