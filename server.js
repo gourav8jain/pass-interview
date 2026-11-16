@@ -44,8 +44,19 @@ function consume(u, kind) {
 const pub = u => ({ id: u.id, email: u.email, name: u.name, role: u.role, plan: u.plan, disabled: u.disabled, created: u.created, profile: u.profile, usage: usage(u), limits: limitsOf(u), bonus: u.bonus || 0, ref: 'REF-' + u.id.slice(0, 6) });
 
 // ---------- AI ----------
-const MODELS = (process.env.AI_MODELS || 'claude-sonnet-5-5,claude-opus-5-5,claude-haiku-5-5').split(',');
+const GKEY = process.env.GEMINI_API_KEY || '';
+const GMODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const MODELS = (process.env.AI_MODELS || [...(KEY || !GKEY ? ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5'] : []), ...(GKEY ? [GMODEL, 'gemini-2.5-pro'] : [])].filter((x, i, a) => a.indexOf(x) === i).join(',')).split(',');
 async function ai(system, user, max = 900, o = {}) {
+  if (GKEY && ((o.model || '').startsWith('gemini') || !KEY)) {
+    try {
+      const r = await fetch('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
+        method: 'POST', headers: { authorization: 'Bearer ' + GKEY, 'content-type': 'application/json' },
+        body: JSON.stringify({ model: (o.model || '').startsWith('gemini') ? o.model : GMODEL, max_tokens: max, messages: [{ role: 'system', content: system }, { role: 'user', content: o.image ? [{ type: 'image_url', image_url: { url: o.image } }, { type: 'text', text: user || 'Answer the question shown in this image.' }] : user }] }),
+      });
+      const j = await r.json(); return j.choices && j.choices[0].message.content;
+    } catch (e) { return null; }
+  }
   if (!KEY && process.env.OPENAI_API_KEY) {
     try {
       const r = await fetch((process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1') + '/chat/completions', {
@@ -224,6 +235,11 @@ const server = http.createServer(async (req, res) => {
     if (bm && req.method === 'DELETE') { if (!need()) return; db.bank = db.bank.filter(x => !(x.id === bm[1] && x.uid === user.id)); save(); return send(res, 200, {}); }
     if (p === '/api/stt' && req.method === 'POST') {
       if (!need()) return;
+      if (!process.env.STT_API_KEY && GKEY) {
+        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GMODEL}:generateContent`, { method: 'POST', headers: { 'x-goog-api-key': GKEY, 'content-type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ inline_data: { mime_type: b.mime || 'audio/webm', data: b.audio || '' } }, { text: 'Transcribe this audio verbatim. Output only the transcript, nothing else. If there is no speech, output nothing.' }] }] }) });
+        const j = await r.json().catch(() => ({})); const t = j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts && j.candidates[0].content.parts[0].text;
+        return send(res, r.ok ? 200 : 502, { text: (t || '').trim(), error: j.error && j.error.message });
+      }
       const key = process.env.STT_API_KEY || process.env.OPENAI_API_KEY;
       if (!key) return send(res, 501, { error: 'Speech-to-text not configured (set STT_API_KEY, optional STT_BASE_URL / STT_MODEL)' });
       const fd = new FormData(); fd.append('file', new Blob([Buffer.from(b.audio || '', 'base64')], { type: b.mime || 'audio/webm' }), 'a.webm'); fd.append('model', process.env.STT_MODEL || 'whisper-1');
@@ -285,4 +301,4 @@ const server = http.createServer(async (req, res) => {
     send(res, 404, { error: 'Not found' });
   } catch (e) { console.error(e); send(res, 500, { error: 'Server error' }); }
 });
-server.listen(PORT, () => console.log(`PassInterview running on http://localhost:${PORT}  (AI: ${KEY ? 'live' : 'demo mode'})`));
+server.listen(PORT, () => console.log(`PassInterview running on http://localhost:${PORT}  (AI: ${KEY ? 'Claude' : GKEY ? 'Gemini' : process.env.OPENAI_API_KEY ? 'OpenAI-compatible' : 'demo mode'})`));

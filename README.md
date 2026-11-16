@@ -27,3 +27,6 @@ CI (`ci.yml`) syntax-checks and smoke-tests the API on every push/PR.
 ## Optional providers (env)
 - `OPENAI_API_KEY` [+ `OPENAI_BASE_URL`, `OPENAI_MODEL`]: use any OpenAI-compatible model (OpenRouter, Ollama, etc.) when no Anthropic key is set.
 - `STT_API_KEY` [+ `STT_BASE_URL`, `STT_MODEL`]: enables Listen mode transcription (tab audio you choose to share).
+
+## Gemini
+Set `GEMINI_API_KEY` (server env only — never commit it). Used for answers, vision (photo questions) and Listen-mode transcription when no Anthropic key is set. Optional `GEMINI_MODEL` (default `gemini-2.5-flash`). Models offered in the copilot picker: the Gemini model + `gemini-2.5-pro`.
