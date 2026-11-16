@@ -1,0 +1,15 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: node --check server.js && node --check public/app.js
+      - name: API smoke test
+        run: |
+          ADMIN_PASSWORD=ci-pass-1234 PORT=3111 node server.js & sleep 2
+          curl -fs localhost:3111/api/plans > /dev/null
+          curl -fs localhost:3111/api/login -H 'content-type: application/json' -d '{"email":"gourav8jain@gmail.com","password":"ci-pass-1234"}' > /dev/null
